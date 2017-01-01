@@ -209,12 +209,14 @@ sEval Pass = putInfo "Pass"
 -- Interpreter prompt within the SEval monad.
 prompt :: Statement -> SEval ()
 prompt statement = do
-    putInfo $ "Next statement: " ++ (safeTake (show statement) 10)
+    putInfo $ "Next statement: " ++ (safeTake (show statement) 20)
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
     env <- getEnv
     case input of
-        "i" -> liftIO $ putStrLn$ show env
+        "i" -> do
+            printEnv $ Map.toList env
+            prompt statement
         "c" -> sEval statement
         "q" -> fail "quitting..."
 
@@ -223,6 +225,12 @@ runInterpreter statement = void $ runSEval catchRoot
     where catchRoot =
             (sEval statement) `catchError`
                  (const $ putInfo "Uncaught error")
+
+printEnv :: [(Name, Val)] -> SEval ()
+printEnv [] = return ()
+printEnv ((name, val):xs) = do
+    putInfo $ concat [name, " = ", show val]
+    printEnv xs
 
 -- Take upto n chars of a string if there are enough.
 safeTake :: String -> Int -> String
