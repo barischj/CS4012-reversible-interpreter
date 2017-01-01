@@ -112,33 +112,36 @@ type Future = [Statement]
 -- current evaluation environment and the statements remaining to be evaluated.
 data IState = IState {
         -- iSHist   :: History,
-        iSEnv :: Env,
+        iSEnv :: Env
         -- iSFuture :: Future
-        iSInfo :: Bool
     }
 
-newIState :: Bool -> IState
-newIState info = IState { iSEnv = Map.empty, iSInfo = info }
+newIState :: IState
+newIState = IState { iSEnv = Map.empty }
 
--- Utility functions to get and set state.
+-- Get and set state environment.
 getEnv :: SEval Env
 getEnv = iSEnv <$> get
 
 setEnv :: Env -> SEval ()
 setEnv env = modify (\state -> state { iSEnv = env })
 
--- Utility function to conditionally print.
+-- Print interpreter output.
 putInfo :: String -> SEval ()
-putInfo str = do
-    info <- iSInfo <$> get
-    when (info) $ liftIO $ putStrLn $ "INFO: " ++ str
+putInfo str = liftIO $ putStrLn $ "> " ++ str
+
+-- Print and throw error.
+throw :: String -> SEval a
+throw error = do
+    putInfo $ "ERR: " ++ error
+    throwError error
 
 -- Monadic style statement evaluator.
 type SEval a = StateT IState (ExceptT String IO) a
 
 -- Run the SEval monad where state contains the given statements.
-runSEval :: SEval a -> Bool -> IO (Either String (a, IState))
-runSEval sEvalA info = runExceptT $ runStateT sEvalA $ newIState info
+runSEval :: SEval a -> IO (Either String (a, IState))
+runSEval sEvalA = runExceptT $ runStateT sEvalA $ newIState
 
 -- Evaluate an expression in the SEval monad.
 
@@ -146,7 +149,7 @@ sExpr :: Expr -> SEval Val
 sExpr expr = do
     env <- getEnv
     case runEval env (eval expr) of
-        Left  err -> fail err
+        Left  err -> throw err
         Right val -> return val
 
 sExprB :: Expr -> SEval Bool
@@ -154,7 +157,7 @@ sExprB expr = do
     val <- sExpr expr
     case val of
         B bool -> return bool
-        _      -> fail "type error in expression"
+        a      -> throw $ "Expected B Bool, got " ++ (show a)
         
 -- Evaluate a statement in the SEval monad.
 
@@ -198,7 +201,7 @@ sEval (Try sTry sCatch) = do
     putInfo "running Try"
     (prompt sTry) `catchError` handler
     where handler _ = do
-            putInfo "caught exception"
+            putInfo "caught error"
             prompt sCatch 
 
 sEval Pass = putInfo "Pass"
@@ -206,7 +209,7 @@ sEval Pass = putInfo "Pass"
 -- Interpreter prompt within the SEval monad.
 prompt :: Statement -> SEval ()
 prompt statement = do
-    liftIO $ putStrLn "i (inspect) / c (continue) / b (back) / q (quit)"
+    putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
     env <- getEnv
     case input of
@@ -214,5 +217,8 @@ prompt statement = do
         "c" -> sEval statement
         "q" -> fail "quitting..."
 
-runInterpreter :: Statement -> Bool -> IO ()
-runInterpreter statement info = void $ runSEval (sEval statement) info
+runInterpreter :: Statement -> IO ()
+runInterpreter statement = void $ runSEval catchRoot
+    where catchRoot =
+            (sEval statement) `catchError`
+                 (const $ putInfo "Uncaught error")

@@ -1,5 +1,5 @@
 Seq (Assign "x" (Const (I 5)))
     (While
-        (Const (B True))
+        (Const (I 10))
         (Assign "x" (Const (I 6)))
     )
