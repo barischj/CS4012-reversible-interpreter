@@ -103,7 +103,7 @@ data Statement =
     deriving (Eq, Read, Show)
 
 -- All previous statements and maybe value of a variable prior to assignment.
-type History = [(Env, Maybe (Name, Val))]
+type History = [(Statement, Maybe (Name, Val))]
 
 -- All statements remaining to be evaluated.
 type Future = [Statement]
@@ -111,13 +111,13 @@ type Future = [Statement]
 -- State in the SEval monad consists of the history of previous statements, the
 -- current evaluation environment and the statements remaining to be evaluated.
 data IState = IState {
-        -- iSHist   :: History,
+        iSHist   :: History,
         iSEnv :: Env
         -- iSFuture :: Future
     }
 
 newIState :: IState
-newIState = IState { iSEnv = Map.empty }
+newIState = IState { iSHist = [], iSEnv = Map.empty }
 
 -- Get and set state environment.
 getEnv :: SEval Env
@@ -125,6 +125,26 @@ getEnv = iSEnv <$> get
 
 setEnv :: Env -> SEval ()
 setEnv env = modify (\state -> state { iSEnv = env })
+
+-- Save a statement and possible assignment to history.
+save :: Statement -> Maybe Name -> SEval ()
+save statement maybeName = do
+    history <- iSHist <$> get
+    case maybeName of
+        Nothing   -> saveNothing history
+        Just name -> do
+            env <- getEnv
+            case Map.lookup name env of
+                Nothing  -> saveNothing history
+                Just val -> saveVal history name val
+                
+    where saveNothing hist = setHistory $ hist ++ [(statement, Nothing)]
+          saveVal hist name val =
+              setHistory $ hist ++ [(statement, Just (name, val))]
+    
+
+setHistory :: History -> SEval ()
+setHistory history = modify (\state -> state { iSHist = history })
 
 -- Print interpreter output.
 putInfo :: String -> SEval ()
@@ -163,7 +183,8 @@ sExprB expr = do
 
 sEval :: Statement -> SEval ()
 
-sEval (Assign name expr) = do
+sEval a@(Assign name expr) = do
+    save a $ Just name
     env <- getEnv
     val <- sExpr expr
     setEnv $ Map.insert name val env 
@@ -212,11 +233,8 @@ prompt statement = do
     putInfo $ "Next statement: " ++ (safeTake (show statement) 20)
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
-    env <- getEnv
     case input of
-        "i" -> do
-            printEnv $ Map.toList env
-            prompt statement
+        "i" -> inspect >> prompt statement
         "c" -> sEval statement
         "q" -> fail "quitting..."
 
@@ -226,6 +244,17 @@ runInterpreter statement = void $ runSEval catchRoot
             (sEval statement) `catchError`
                  (const $ putInfo "Uncaught error")
 
+-- Inspection functions.
+
+inspect :: SEval ()
+inspect = do
+    env <- getEnv
+    printEnv $ Map.toList env
+    putInfo "i X (inspect X) / q (quit inspection)"
+    input <- liftIO $ getLine
+    case input of
+        "q" -> return ()
+  
 printEnv :: [(Name, Val)] -> SEval ()
 printEnv [] = return ()
 printEnv ((name, val):xs) = do
