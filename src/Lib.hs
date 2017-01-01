@@ -102,19 +102,23 @@ data Statement =
     | Pass
     deriving (Eq, Show)
 
--- All previous statements and respective environment prior to its evaluation.
-type History = [(Env, Statement)]
+-- All previous statements and maybe value of a variable prior to assignment.
+type History = [(Env, Maybe (Name, Val))]
 
 -- All statements remaining to be evaluated.
 type Future  = [Statement]
 
--- State in the SEval monad consists of the history of previous statements, the 
+-- State in the SEval monad consists of the history of previous statements, the
 -- current evaluation environment and the statements remaining to be evaluated.
-type SState  = (History, Env, Future)
+data IState  = IState {
+    isHist   :: History,
+    isEnv    :: Env,
+    isFuture :: Future
+  }
 
 -- Monadic style statement evaluator.
-type SEval a = StateT SState (ExceptT String IO) a
-  
+type SEval a = StateT IState (ExceptT String IO) a
+
 -- Run the SEval monad where state contains the given statements.
 runSEval :: SEval a -> [Statement] -> IO (Either String (a, SState))
 runSEval sEvalA statements = runExceptT $ runStateT sEvalA state
