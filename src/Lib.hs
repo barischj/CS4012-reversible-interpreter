@@ -166,25 +166,25 @@ sEval (Assign name expr) = do
     setEnv $ Map.insert name val env 
     putInfo $ concat ["Assigned ", show val, " to ", show name]
 
-sEval (If expr strue sfalse) = do
+sEval (If expr sTrue sFalse) = do
     val <- sExprB expr
     case val of
         False -> do
-            putInfo "if guard false"
-            prompt sfalse
+            putInfo "If guard false"
+            prompt sFalse
         True  -> do
-            putInfo "if guard true"
-            prompt strue
+            putInfo "If guard true"
+            prompt sTrue
 
 sEval while@(While expr statement) = do
     val <- sExprB expr
     case val of
         False ->
-            putInfo "while guard false"
+            putInfo "While guard false"
         True  -> do
-            putInfo "while guard true"
+            putInfo "While guard true"
             prompt statement
-            putInfo "while iteration finished"
+            putInfo "While iteration finished"
             prompt while
 
 sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr  
@@ -193,6 +193,15 @@ sEval (Seq s1 s2) = do
     putInfo "running Seq"
     prompt s1
     prompt s2
+    
+sEval (Try sTry sCatch) = do
+    putInfo "running Try"
+    (prompt sTry) `catchError` handler
+    where handler _ = do
+            putInfo "caught exception"
+            prompt sCatch 
+
+sEval Pass = putInfo "Pass"
 
 -- Interpreter prompt within the SEval monad.
 prompt :: Statement -> SEval ()
