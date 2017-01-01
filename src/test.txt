@@ -1,0 +1,5 @@
+Seq (Assign "x" (Const (I 5)))
+    (While
+        (Const (B True))
+        (Assign "x" (Const (I 6)))
+    )

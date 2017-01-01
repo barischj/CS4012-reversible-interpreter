@@ -169,7 +169,7 @@ sEval (If expr strue sfalse) = do
             liftIO $ putStrLn "if guard true"
             prompt strue
 
-sEval (While expr statement) = do
+sEval while@(While expr statement) = do
     val <- sExprB expr
     case val of
         False ->
@@ -177,7 +177,16 @@ sEval (While expr statement) = do
         True  -> do
             liftIO $ putStrLn "while guard true"
             prompt statement
-  
+            liftIO $ putStrLn "while iteration finished"
+            prompt while
+
+-- sEval (Print expr)  
+
+sEval (Seq s1 s2) = do
+    liftIO $ putStrLn "running Seq"
+    prompt s1
+    prompt s2
+
 -- Interpreter prompt within the SEval monad.
 prompt :: Statement -> SEval ()
 prompt statement = do
