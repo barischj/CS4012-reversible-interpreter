@@ -111,13 +111,14 @@ type Future = [Statement]
 -- State in the SEval monad consists of the history of previous statements, the
 -- current evaluation environment and the statements remaining to be evaluated.
 data IState = IState {
-    -- iSHist   :: History,
-    iSEnv    :: Env
-    -- iSFuture :: Future
-  }
+        -- iSHist   :: History,
+        iSEnv :: Env,
+        -- iSFuture :: Future
+        iSInfo :: Bool
+    }
 
-newIState :: IState
-newIState = IState { iSEnv = Map.empty }
+newIState :: Bool -> IState
+newIState info = IState { iSEnv = Map.empty, iSInfo = info }
 
 -- Utility functions to get and set state.
 getEnv :: SEval Env
@@ -125,13 +126,19 @@ getEnv = iSEnv <$> get
 
 setEnv :: Env -> SEval ()
 setEnv env = modify (\state -> state { iSEnv = env })
-  
+
+-- Utility function to conditionally print.
+putInfo :: String -> SEval ()
+putInfo str = do
+    info <- iSInfo <$> get
+    when (info) $ liftIO $ putStrLn $ "INFO: " ++ str
+
 -- Monadic style statement evaluator.
 type SEval a = StateT IState (ExceptT String IO) a
 
 -- Run the SEval monad where state contains the given statements.
-runSEval :: SEval a -> IO (Either String (a, IState))
-runSEval sEvalA  = runExceptT $ runStateT sEvalA newIState
+runSEval :: SEval a -> Bool -> IO (Either String (a, IState))
+runSEval sEvalA info = runExceptT $ runStateT sEvalA $ newIState info
 
 -- Evaluate an expression in the SEval monad.
 
@@ -157,33 +164,33 @@ sEval (Assign name expr) = do
     env <- getEnv
     val <- sExpr expr
     setEnv $ Map.insert name val env 
-    liftIO $ putStrLn $ concat ["Assigned ", show val, " to ", show name]
+    putInfo $ concat ["Assigned ", show val, " to ", show name]
 
 sEval (If expr strue sfalse) = do
     val <- sExprB expr
     case val of
         False -> do
-            liftIO $ putStrLn "if guard false"
+            putInfo "if guard false"
             prompt sfalse
         True  -> do
-            liftIO $ putStrLn "if guard true"
+            putInfo "if guard true"
             prompt strue
 
 sEval while@(While expr statement) = do
     val <- sExprB expr
     case val of
         False ->
-            liftIO $ putStrLn "while guard false"
+            putInfo "while guard false"
         True  -> do
-            liftIO $ putStrLn "while guard true"
+            putInfo "while guard true"
             prompt statement
-            liftIO $ putStrLn "while iteration finished"
+            putInfo "while iteration finished"
             prompt while
 
--- sEval (Print expr)  
+sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr  
 
 sEval (Seq s1 s2) = do
-    liftIO $ putStrLn "running Seq"
+    putInfo "running Seq"
     prompt s1
     prompt s2
 
@@ -198,5 +205,5 @@ prompt statement = do
         "c" -> sEval statement
         "q" -> fail "quitting..."
 
-runInterpreter :: Statement -> IO ()
-runInterpreter statement = void $ runSEval (sEval statement)
+runInterpreter :: Statement -> Bool -> IO ()
+runInterpreter statement info = void $ runSEval (sEval statement) info

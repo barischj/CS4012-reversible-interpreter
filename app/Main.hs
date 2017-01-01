@@ -5,6 +5,6 @@ import System.Environment
 
 main :: IO ()
 main = do
-  [filepath] <- getArgs
+  [filepath, info] <- getArgs
   file <- readFile filepath
-  runInterpreter $ read file
+  runInterpreter (read file) $ read info
