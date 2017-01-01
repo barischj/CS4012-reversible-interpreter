@@ -15,7 +15,7 @@ import Control.Monad.Writer
 data Val =
       I Int
     | B Bool
-    deriving (Eq, Show)
+    deriving (Eq, Read, Show)
 
 data Expr =
       Const Val
@@ -30,7 +30,7 @@ data Expr =
     | Gt  Expr Expr
     | Lt  Expr Expr
     | Var Name
-    deriving (Eq, Show)
+    deriving (Eq, Read, Show)
 
 type Name = String
 type Env  = Map.Map Name Val
@@ -100,7 +100,7 @@ data Statement =
     | Seq Statement Statement
     | Try Statement Statement
     | Pass
-    deriving (Eq, Show)
+    deriving (Eq, Read, Show)
 
 -- All previous statements and maybe value of a variable prior to assignment.
 type History = [(Env, Maybe (Name, Val))]
@@ -119,42 +119,75 @@ data IState = IState {
 newIState :: IState
 newIState = IState { iSEnv = Map.empty }
 
+-- Utility functions to get and set state.
+getEnv :: SEval Env
+getEnv = iSEnv <$> get
+
+setEnv :: Env -> SEval ()
+setEnv env = modify (\state -> state { iSEnv = env })
+  
 -- Monadic style statement evaluator.
 type SEval a = StateT IState (ExceptT String IO) a
 
 -- Run the SEval monad where state contains the given statements.
-runSEval :: SEval a -> Statement -> IO (Either String (a, SState))
-runSEval sEvalA statements = runExceptT $ runStateT sEvalA state
-    where state = ([], Map.empty, statements)
+runSEval :: SEval a -> IO (Either String (a, IState))
+runSEval sEvalA  = runExceptT $ runStateT sEvalA newIState
 
 -- Evaluate an expression in the SEval monad.
-sExpr :: Env -> Expr -> SEval Val
-sExpr env expr = do
+
+sExpr :: Expr -> SEval Val
+sExpr expr = do
+    env <- getEnv
     case runEval env (eval expr) of
         Left  err -> fail err
         Right val -> return val
 
+sExprB :: Expr -> SEval Bool
+sExprB expr = do
+    val <- sExpr expr
+    case val of
+        B bool -> return bool
+        _      -> fail "type error in expression"
+        
 -- Evaluate a statement in the SEval monad.
+
 sEval :: Statement -> SEval ()
-sEval a@(Assign name expr) = do
-    (h, env, f) <- get
-    val <- sExpr env expr
-    put (h ++ [(env, a)], Map.insert name val env, f)
 
--- Interpreter running in the SEval monad.
-sEvalI :: SEval ()
-sEvalI = do
-    liftIO $ putStrLn "i (inspect) / s (step) / b (back) / q (quit)"
+sEval (Assign name expr) = do
+    env <- getEnv
+    val <- sExpr expr
+    setEnv $ Map.insert name val env 
+    liftIO $ putStrLn $ concat ["Assigned ", show val, " to ", show name]
+
+sEval (If expr strue sfalse) = do
+    val <- sExprB expr
+    case val of
+        False -> do
+            liftIO $ putStrLn "if guard false"
+            prompt sfalse
+        True  -> do
+            liftIO $ putStrLn "if guard true"
+            prompt strue
+
+sEval (While expr statement) = do
+    val <- sExprB expr
+    case val of
+        False ->
+            liftIO $ putStrLn "while guard false"
+        True  -> do
+            liftIO $ putStrLn "while guard true"
+            prompt statement
+  
+-- Interpreter prompt within the SEval monad.
+prompt :: Statement -> SEval ()
+prompt statement = do
+    liftIO $ putStrLn "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
-    (h, e, fs) <- get
+    env <- getEnv
     case input of
-        "i" -> liftIO $ putStrLn$ show e
-        "f" ->
-            case Safe.headMay fs of
-                Nothing -> liftIO $ putStrLn "No more statements"
-                Just f  -> sEval f
+        "i" -> liftIO $ putStrLn$ show env
+        "c" -> sEval statement
         "q" -> fail "quitting..."
-    sEvalI 
 
-runInterpreter :: [Statement] -> IO ()
-runInterpreter statements = void $ runSEval (sEvalI) statements
+runInterpreter :: Statement -> IO ()
+runInterpreter statement = void $ runSEval (sEval statement)
