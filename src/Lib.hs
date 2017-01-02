@@ -1,14 +1,14 @@
 module Lib where
 
-import qualified Data.Map as Map
+import qualified Data.Map               as Map
 import qualified Safe
-  
-import qualified Control.Monad as Monad
-import Control.Monad.Identity
-import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Writer
+
+import qualified Control.Monad          as Monad
+import           Control.Monad.Except
+import           Control.Monad.Identity
+import           Control.Monad.Reader
+import           Control.Monad.State
+import           Control.Monad.Writer
 
 -- The pure expression language.
 
@@ -111,8 +111,8 @@ type Future = [Statement]
 -- State in the SEval monad consists of the history of previous statements, the
 -- current evaluation environment and the statements remaining to be evaluated.
 data IState = IState {
-        iSHist   :: History,
-        iSEnv :: Env
+        iSHist :: History,
+        iSEnv  :: Env
         -- iSFuture :: Future
     }
 
@@ -129,7 +129,7 @@ setEnv env = modify (\state -> state { iSEnv = env })
 -- Save a statement and possible assignment to history.
 save :: Statement -> Maybe Name -> SEval ()
 save statement maybeName = do
-    history <- iSHist <$> get
+    history <- getHistory
     case maybeName of
         Nothing   -> saveNothing history
         Just name -> do
@@ -137,11 +137,14 @@ save statement maybeName = do
             case Map.lookup name env of
                 Nothing  -> saveNothing history
                 Just val -> saveVal history name val
-                
+
     where saveNothing hist = setHistory $ hist ++ [(statement, Nothing)]
           saveVal hist name val =
               setHistory $ hist ++ [(statement, Just (name, val))]
-    
+
+-- Get and set state history.
+getHistory :: SEval History
+getHistory = iSHist <$> get
 
 setHistory :: History -> SEval ()
 setHistory history = modify (\state -> state { iSHist = history })
@@ -178,7 +181,7 @@ sExprB expr = do
     case val of
         B bool -> return bool
         a      -> throw $ "Expected B Bool, got " ++ (show a)
-        
+
 -- Evaluate a statement in the SEval monad.
 
 sEval :: Statement -> SEval ()
@@ -187,7 +190,7 @@ sEval a@(Assign name expr) = do
     save a $ Just name
     env <- getEnv
     val <- sExpr expr
-    setEnv $ Map.insert name val env 
+    setEnv $ Map.insert name val env
     putInfo $ concat ["Assigned ", show val, " to ", show name]
 
 sEval (If expr sTrue sFalse) = do
@@ -211,19 +214,19 @@ sEval while@(While expr statement) = do
             putInfo "While iteration finished"
             prompt while
 
-sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr  
+sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr
 
 sEval (Seq s1 s2) = do
     putInfo "running Seq"
     prompt s1
     prompt s2
-    
+
 sEval (Try sTry sCatch) = do
     putInfo "running Try"
     (prompt sTry) `catchError` handler
     where handler _ = do
             putInfo "caught error"
-            prompt sCatch 
+            prompt sCatch
 
 sEval Pass = putInfo "Pass"
 
@@ -237,7 +240,8 @@ prompt statement = do
         "i" -> inspect >> prompt statement
         "c" -> sEval statement
         "q" -> fail "quitting..."
-
+        _   -> prompt statement
+        
 runInterpreter :: Statement -> IO ()
 runInterpreter statement = void $ runSEval catchRoot
     where catchRoot =
@@ -247,23 +251,38 @@ runInterpreter statement = void $ runSEval catchRoot
 -- Inspection functions.
 
 inspect :: SEval ()
-inspect = do
-    env <- getEnv
-    printEnv $ Map.toList env
+inspect = printEnv >> inspectPrompt
+
+inspectPrompt :: SEval ()
+inspectPrompt = do
     putInfo "i X (inspect X) / q (quit inspection)"
     input <- liftIO $ getLine
     case input of
-        "q" -> return ()
-  
-printEnv :: [(Name, Val)] -> SEval ()
-printEnv [] = return ()
-printEnv ((name, val):xs) = do
+        "q"              -> return ()
+        ['i', ' ', name] -> inspectVar [name]
+        _                -> inspectPrompt
+
+inspectVar :: Name -> SEval ()
+inspectVar name = do
+    history <- getHistory
+    mapM_ (when ()) history 
+
+-- History :: [(Statement, Maybe (Name, Val))]
+
+printEnv :: SEval ()
+printEnv = do
+    env <- getEnv
+    printEnv' $ Map.toList env
+
+printEnv' :: [(Name, Val)] -> SEval ()
+printEnv' [] = return ()
+printEnv' ((name, val):xs) = do
     putInfo $ concat [name, " = ", show val]
-    printEnv xs
+    printEnv' xs
 
 -- Take upto n chars of a string if there are enough.
 safeTake :: String -> Int -> String
 safeTake [] _ = []
 safeTake (x:xs) n
     | n > 0     = x : safeTake xs (n - 1)
-    | otherwise = "..." 
+    | otherwise = "..."
