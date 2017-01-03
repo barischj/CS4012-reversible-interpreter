@@ -102,8 +102,10 @@ data Statement =
     | Pass
     deriving (Eq, Read, Show)
 
--- All previous statements and maybe value of a variable prior to assignment.
-type History = [(Statement, Maybe (Name, Val))]
+-- History consists of all previous statements and maybe value of a variable
+-- prior to assignment.
+type HistoryItem = (Statement, Maybe (Name, Val))
+type History = [HistoryItem]
 
 -- All statements remaining to be evaluated.
 type Future = [Statement]
@@ -241,7 +243,7 @@ prompt statement = do
         "c" -> sEval statement
         "q" -> fail "quitting..."
         _   -> prompt statement
-        
+
 runInterpreter :: Statement -> IO ()
 runInterpreter statement = void $ runSEval catchRoot
     where catchRoot =
@@ -259,13 +261,20 @@ inspectPrompt = do
     input <- liftIO $ getLine
     case input of
         "q"              -> return ()
-        ['i', ' ', name] -> inspectVar [name]
+        ['i', ' ', name] -> inspectVar [name] >> inspectPrompt
         _                -> inspectPrompt
 
 inspectVar :: Name -> SEval ()
 inspectVar name = do
     history <- getHistory
-    mapM_ (when ()) history 
+    mapM_ (printHistoryIfVar) history
+
+printHistoryIfVar :: HistoryItem -> SEval ()
+printHistoryIfVar (statement, maybeVar) =
+    case maybeVar of
+        Nothing          -> return ()
+        Just (name, val) -> putInfo $ concat
+            [safeTake (show statement) 20, "    ", name, " = ", show val]
 
 -- History :: [(Statement, Maybe (Name, Val))]
 

@@ -1,4 +1,5 @@
-Seq (Assign "x" (Const (I 5)))
+Seq (Assign "x" (Const (I 0)))
+Seq (Assign "y" (Const (I 1)))
     (While
         (Const (I 10))
         (Assign "x" (Const (I 6)))
