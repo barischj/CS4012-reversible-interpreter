@@ -184,7 +184,7 @@ sExprB expr = do
         B bool -> return bool
         a      -> throw $ "Expected B Bool, got " ++ (show a)
 
--- Evaluate a statement in the SEval monad.
+-- Statement handlers for the interpreter.
 
 sEval :: Statement -> SEval ()
 
@@ -232,14 +232,14 @@ sEval (Try sTry sCatch) = do
 
 sEval Pass = putInfo "Pass"
 
--- Interpreter prompt within the SEval monad.
+-- Interactive prompt for the Statement language.
 prompt :: Statement -> SEval ()
 prompt statement = do
-    putInfo $ "Next statement: " ++ (safeTake (show statement) 20)
+    putInfo $ "Next statement: " ++ safeTake (show statement)
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
     case input of
-        "i" -> inspect >> prompt statement
+        "i" -> inspectPrompt >> prompt statement
         "c" -> sEval statement
         "q" -> fail "quitting..."
         _   -> prompt statement
@@ -250,34 +250,45 @@ runInterpreter statement = void $ runSEval catchRoot
             (sEval statement) `catchError`
                  (const $ putInfo "Uncaught error")
 
--- Inspection functions.
+-- Inspection functions -------------------------------------------------------
 
-inspect :: SEval ()
-inspect = printEnv >> inspectPrompt
-
+-- Interactive prompt to inspect the history of variables. 
 inspectPrompt :: SEval ()
 inspectPrompt = do
-    putInfo "i X (inspect X) / q (quit inspection)"
+    putInfo "i X (inspect X) / e (current environement) / q (quit inspection)"
     input <- liftIO $ getLine
     case input of
+        ['i', ' ', name] -> printVarHistory [name] >> inspectPrompt
         "q"              -> return ()
-        ['i', ' ', name] -> inspectVar [name] >> inspectPrompt
-        _                -> inspectPrompt
+        "e"              -> printEnv               >> inspectPrompt  
+        _                -> putInfo "bad input"    >> inspectPrompt
 
-inspectVar :: Name -> SEval ()
-inspectVar name = do
+-- Prints the history of a variable and its current value.
+printVarHistory :: Name -> SEval ()
+printVarHistory name = do
     history <- getHistory
-    mapM_ (printHistoryIfVar) history
+    mapM_ (printHistoryItemIfName name) history
+    printCurrentVar name
 
-printHistoryIfVar :: HistoryItem -> SEval ()
-printHistoryIfVar (statement, maybeVar) =
+-- Prints a statement and value of a variable prior to its execution IF that
+-- variable is of given name.
+printHistoryItemIfName :: Name -> HistoryItem -> SEval ()
+printHistoryItemIfName name (statement, maybeVar) =
     case maybeVar of
-        Nothing          -> return ()
-        Just (name, val) -> putInfo $ concat
-            [safeTake (show statement) 20, "    ", name, " = ", show val]
+        Nothing           -> return ()
+        Just (name', val) ->
+            when (name == name') $ putInfo $ concat
+                [safeTake (show statement), "    ", name, " = ", show val]
 
--- History :: [(Statement, Maybe (Name, Val))]
+-- Prints the current value of a variable.
+printCurrentVar :: Name -> SEval ()
+printCurrentVar name = do
+    env <- getEnv
+    case Map.lookup name env of
+        Nothing  -> putInfo $ name ++ " is undefined"
+        Just val -> putInfo $ concat [name, " = ", show val] 
 
+-- Prints the current environment.
 printEnv :: SEval ()
 printEnv = do
     env <- getEnv
@@ -290,8 +301,11 @@ printEnv' ((name, val):xs) = do
     printEnv' xs
 
 -- Take upto n chars of a string if there are enough.
-safeTake :: String -> Int -> String
-safeTake [] _ = []
-safeTake (x:xs) n
-    | n > 0     = x : safeTake xs (n - 1)
+safeTake :: String -> String
+safeTake = safeTake' 30
+
+safeTake' :: Int -> String -> String
+safeTake' _ [] = []
+safeTake' n (x:xs)
+    | n > 0     = x : safeTake' (n - 1) xs
     | otherwise = "..."
