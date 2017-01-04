@@ -1,5 +1,4 @@
 module Lib where
-
 import qualified Data.Map               as Map
 import qualified Safe
 
@@ -184,7 +183,7 @@ sExprB expr = do
         B bool -> return bool
         a      -> throw $ "Expected B Bool, got " ++ (show a)
 
--- Statement handlers for the interpreter.
+-- Statement handlers for the interpreter -------------------------------------
 
 sEval :: Statement -> SEval ()
 
@@ -232,18 +231,19 @@ sEval (Try sTry sCatch) = do
 
 sEval Pass = putInfo "Pass"
 
--- Interactive prompt for the Statement language.
+-- Interactive prompt for a statement.
 prompt :: Statement -> SEval ()
 prompt statement = do
     putInfo $ "Next statement: " ++ safeTake (show statement)
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
     case input of
-        "i" -> inspectPrompt >> prompt statement
+        "i" -> inspectPrompt       >> prompt statement
         "c" -> sEval statement
         "q" -> fail "quitting..."
-        _   -> prompt statement
+        _   -> putInfo "bad input" >> prompt statement
 
+-- Run the prompt on a statament, catching any errors.
 runInterpreter :: Statement -> IO ()
 runInterpreter statement = void $ runSEval catchRoot
     where catchRoot =
