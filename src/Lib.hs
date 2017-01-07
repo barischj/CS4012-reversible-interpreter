@@ -277,8 +277,7 @@ printHistoryItemIfName name (statement, maybeVar) =
     case maybeVar of
         Nothing           -> return ()
         Just (name', val) ->
-            when (name == name') $ putInfo $ concat
-                [safeTake (show statement), "    ", name, " = ", show val]
+            when (name == name') $ putInfo $ concat [name, " = ", show val]
 
 -- Prints the current value of a variable.
 printCurrentVar :: Name -> SEval ()
