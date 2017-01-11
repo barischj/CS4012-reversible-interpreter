@@ -115,7 +115,7 @@ data IState = IState {
         iSHist :: History,
         iSEnv  :: Env
         -- iSFuture :: Future
-    }
+    } deriving Show
 
 newIState :: IState
 newIState = IState { iSHist = [], iSEnv = Map.empty }
@@ -187,8 +187,8 @@ sExprB expr = do
 
 sEval :: Statement -> SEval ()
 
-sEval a@(Assign name expr) = do
-    save a $ Just name
+sEval stmt@(Assign name expr) = do
+    save stmt $ Just name
     env <- getEnv
     val <- sExpr expr
     setEnv $ Map.insert name val env
@@ -217,7 +217,8 @@ sEval while@(While expr statement) = do
 
 sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr
 
-sEval (Seq s1 s2) = do
+sEval stmt@(Seq s1 s2) = do
+    save stmt Nothing
     putInfo "running Seq"
     prompt s1
     prompt s2
@@ -226,7 +227,7 @@ sEval (Try sTry sCatch) = do
     putInfo "running Try"
     (prompt sTry) `catchError` handler
     where handler _ = do
-            putInfo "caught error"
+            putInfo "caught error" 
             prompt sCatch
 
 sEval Pass = putInfo "Pass"
@@ -238,8 +239,17 @@ prompt statement = do
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO $ getLine
     case input of
-        "i" -> inspectPrompt       >> prompt statement
+        "b" -> do -- print current state and see what we can do
+               putInfo "current state"
+               state <- get
+               putInfo $ show state
+               prompt statement
+               -- The statement we are currently evaluating is the last in our
+               -- state history. So we take the second last statement which is
+               -- semantically the previously evaluated statement. We then begin
+               -- evaluating that statement.
         "c" -> sEval statement
+        "i" -> inspectPrompt       >> prompt statement
         "q" -> fail "quitting..."
         _   -> putInfo "bad input" >> prompt statement
 
@@ -252,7 +262,7 @@ runInterpreter statement = void $ runSEval catchRoot
 
 -- Inspection functions -------------------------------------------------------
 
--- Interactive prompt to inspect the history of variables. 
+-- Interactive prompt to inspect the history of variables.
 inspectPrompt :: SEval ()
 inspectPrompt = do
     putInfo "i X (inspect X) / e (current environement) / q (quit inspection)"
@@ -260,7 +270,7 @@ inspectPrompt = do
     case input of
         ['i', ' ', name] -> printVarHistory [name] >> inspectPrompt
         "q"              -> return ()
-        "e"              -> printEnv               >> inspectPrompt  
+        "e"              -> printEnv               >> inspectPrompt
         _                -> putInfo "bad input"    >> inspectPrompt
 
 -- Prints the history of a variable and its current value.
