@@ -1,13 +1,10 @@
 module Lib where
 import qualified Data.Map               as Map
-import qualified Safe
 
-import qualified Control.Monad          as Monad
 import           Control.Monad.Except
 import           Control.Monad.Identity
 import           Control.Monad.Reader
-import           Control.Monad.State
-import           Control.Monad.Writer
+import           Control.Monad.State hiding (state)
 
 -- The pure expression language.
 
@@ -71,20 +68,19 @@ evalib op e0 e1 = do
 -- Evaluate an expression.
 eval :: Expr -> Eval Val
 eval (Const v) = return v
-eval (Add e0 e1) = do evali (+) e0 e1
-eval (Sub e0 e1) = do evali (-) e0 e1
-eval (Mul e0 e1) = do evali (*) e0 e1
-eval (Div e0 e1) = do evali div e0 e1
+eval (Add e0 e1) = evali (+) e0 e1
+eval (Sub e0 e1) = evali (-) e0 e1
+eval (Mul e0 e1) = evali (*) e0 e1
+eval (Div e0 e1) = evali div e0 e1
 
-eval (And e0 e1) = do evalb (&&) e0 e1
-eval (Or  e0 e1) = do evalb (||) e0 e1
+eval (And e0 e1) = evalb (&&) e0 e1
+eval (Or  e0 e1) = evalb (||) e0 e1
 
-eval (Not e0   ) = do
-    evalb (const not) e0 (Const (B True))
+eval (Not e0   ) = evalb (const not) e0 (Const (B True))
 
-eval (Eq e0 e1) = do evalib (==) e0 e1
-eval (Gt e0 e1) = do evalib (>) e0 e1
-eval (Lt e0 e1) = do evalib (<) e0 e1
+eval (Eq e0 e1) = evalib (==) e0 e1
+eval (Gt e0 e1) = evalib (>) e0 e1
+eval (Lt e0 e1) = evalib (<) e0 e1
 
 eval (Var s) = do
     env <- ask
@@ -125,7 +121,7 @@ getEnv :: SEval Env
 getEnv = iSEnv <$> get
 
 setEnv :: Env -> SEval ()
-setEnv env = modify (\state -> state { iSEnv = env })
+setEnv env = modify (\s -> s { iSEnv = env })
 
 -- Save a statement and possible assignment to history.
 save :: Statement -> Maybe Name -> SEval ()
@@ -148,7 +144,7 @@ getHistory :: SEval History
 getHistory = iSHist <$> get
 
 setHistory :: History -> SEval ()
-setHistory history = modify (\state -> state { iSHist = history })
+setHistory history = modify (\s -> s { iSHist = history })
 
 -- Print interpreter output.
 putInfo :: String -> SEval ()
@@ -156,16 +152,16 @@ putInfo str = liftIO $ putStrLn $ "> " ++ str
 
 -- Print and throw error.
 throw :: String -> SEval a
-throw error = do
-    putInfo $ "ERR: " ++ error
-    throwError error
+throw err = do
+    putInfo $ "ERR: " ++ err
+    throwError err
 
 -- Monadic style statement evaluator.
 type SEval a = StateT IState (ExceptT String IO) a
 
 -- Run the SEval monad where state contains the given statements.
 runSEval :: SEval a -> IO (Either String (a, IState))
-runSEval sEvalA = runExceptT $ runStateT sEvalA $ newIState
+runSEval sEvalA = runExceptT $ runStateT sEvalA newIState
 
 -- Evaluate an expression in the SEval monad.
 
@@ -181,7 +177,7 @@ sExprB expr = do
     val <- sExpr expr
     case val of
         B bool -> return bool
-        a      -> throw $ "Expected B Bool, got " ++ (show a)
+        a      -> throw $ "Expected B Bool, got " ++ show a
 
 -- Statement handlers for the interpreter -------------------------------------
 
@@ -196,24 +192,18 @@ sEval stmt@(Assign name expr) = do
 
 sEval (If expr sTrue sFalse) = do
     val <- sExprB expr
-    case val of
-        False -> do
-            putInfo "If guard false"
-            prompt sFalse
-        True  -> do
-            putInfo "If guard true"
-            prompt sTrue
+    putInfo $ "If guard " ++ show val
+    if   val
+    then prompt sTrue
+    else prompt sFalse
 
 sEval while@(While expr statement) = do
     val <- sExprB expr
-    case val of
-        False ->
-            putInfo "While guard false"
-        True  -> do
-            putInfo "While guard true"
-            prompt statement
-            putInfo "While iteration finished"
-            prompt while
+    putInfo $ "While guard " ++ show val
+    when val $ do
+      prompt statement
+      putInfo "While iteration finished"
+      prompt while
 
 sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr
 
@@ -225,9 +215,9 @@ sEval stmt@(Seq s1 s2) = do
 
 sEval (Try sTry sCatch) = do
     putInfo "running Try"
-    (prompt sTry) `catchError` handler
+    prompt sTry `catchError` handler
     where handler _ = do
-            putInfo "caught error" 
+            putInfo "caught error"
             prompt sCatch
 
 sEval Pass = putInfo "Pass"
@@ -237,7 +227,7 @@ prompt :: Statement -> SEval ()
 prompt statement = do
     putInfo $ "Next statement: " ++ safeTake (show statement)
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
-    input <- liftIO $ getLine
+    input <- liftIO getLine
     case input of
         "b" -> do -- print current state and see what we can do
                putInfo "current state"
@@ -257,8 +247,8 @@ prompt statement = do
 runInterpreter :: Statement -> IO ()
 runInterpreter statement = void $ runSEval catchRoot
     where catchRoot =
-            (sEval statement) `catchError`
-                 (const $ putInfo "Uncaught error")
+            sEval statement `catchError`
+                 const (putInfo "Uncaught error")
 
 -- Inspection functions -------------------------------------------------------
 
@@ -266,7 +256,7 @@ runInterpreter statement = void $ runSEval catchRoot
 inspectPrompt :: SEval ()
 inspectPrompt = do
     putInfo "i X (inspect X) / e (current environement) / q (quit inspection)"
-    input <- liftIO $ getLine
+    input <- liftIO getLine
     case input of
         ['i', ' ', name] -> printVarHistory [name] >> inspectPrompt
         "q"              -> return ()
@@ -283,7 +273,7 @@ printVarHistory name = do
 -- Prints a statement and value of a variable prior to its execution IF that
 -- variable is of given name.
 printHistoryItemIfName :: Name -> HistoryItem -> SEval ()
-printHistoryItemIfName name (statement, maybeVar) =
+printHistoryItemIfName name (_, maybeVar) =
     case maybeVar of
         Nothing           -> return ()
         Just (name', val) ->
