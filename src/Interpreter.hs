@@ -1,11 +1,11 @@
 module Interpreter where
 
-import qualified Data.Map as Map
 import           Control.Monad.Except
 import           Control.Monad.State
-import Expr
+import qualified Data.Map             as Map
+import           Expr
 
--- The statement language.
+-- | The statement language.
 data Statement =
       Assign Name Expr
     | If Expr Statement Statement
@@ -16,13 +16,11 @@ data Statement =
     | Pass
     deriving (Eq, Read, Show)
 
--- History consists of all previous statements and maybe value of a variable
--- prior to assignment.
+-- | History of previous `Statment`s and possible variable assignment.
 type HistoryItem = (Statement, Maybe (Name, Val))
 type History     = [HistoryItem]
 
--- State in the SEval monad consists of the history of previous statements, the
--- current evaluation environment and the statements remaining to be evaluated.
+-- | State consists of variable history and the current environment.
 data IState = IState {
         iSHist :: History,
         iSEnv  :: Env
@@ -31,7 +29,7 @@ data IState = IState {
 newIState :: IState
 newIState = IState { iSHist = [], iSEnv = Map.empty }
 
--- Get and set state environment.
+-- | Get and set state environment.
 getEnv :: SEval Env
 getEnv = iSEnv <$> get
 
@@ -41,7 +39,7 @@ setEnv env = modify (\s -> s { iSEnv = env })
 modifyEnv :: (Env -> Env) -> SEval ()
 modifyEnv f = modify (\s -> s { iSEnv = f (iSEnv s) })
 
--- Save a statement and possible assignment to history.
+-- | Save a statement and possible assignment to history.
 save :: Statement -> Maybe Name -> SEval ()
 save statement maybeName = do
     history <- getHistory
@@ -57,7 +55,7 @@ save statement maybeName = do
           saveVal hist name val =
               setHistory $ hist ++ [(statement, Just (name, val))]
 
--- Get and set state history.
+-- | Get and set state history.
 getHistory :: SEval History
 getHistory = iSHist <$> get
 
@@ -68,6 +66,8 @@ setHistory history = modify (\s -> s { iSHist = history })
 putInfo :: String -> SEval ()
 putInfo str = liftIO $ putStrLn $ "> " ++ str
 
+-- | A `BackError` is thrown if we want to step back. A `StrError` contains a
+-- message for the user.
 data SError = BackError Int | StrError String deriving Show
 
 -- Print and throw error.
@@ -76,7 +76,7 @@ throwSErrorStr err = do
     putInfo $ "ERR: " ++ err
     throwError $ StrError err
 
--- Monadic style statement evaluator.
+-- | Statement evluation monad.
 type SEval a = StateT IState (ExceptT SError IO) a
 
 -- Run the SEval monad where state contains the given statements.
@@ -193,9 +193,9 @@ inspectPrompt = do
     putInfo "i X (inspect X) / e (current environement) / q (quit inspection)"
     input <- liftIO getLine
     case input of
-        "q"              -> return ()
-        "e"              -> printEnv               >> inspectPrompt
-        _                -> putInfo "bad input"    >> inspectPrompt
+        "q" -> return ()
+        "e" -> printEnv               >> inspectPrompt
+        _   -> putInfo "bad input"    >> inspectPrompt
 
 -- Prints the history of a variable and its current value.
 printVarHistory :: Name -> SEval ()

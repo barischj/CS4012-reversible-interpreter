@@ -1,8 +1,8 @@
 module Main where
 
-import Interpreter (runInterpreter)
-import StaticAnalysis (analyse, printErrs)
-import System.Environment
+import           Interpreter        (runInterpreter)
+import           StaticAnalysis     (analyse, printErrs)
+import           System.Environment
 
 -- | Runs the interpreter on a file.
 -- If the file doesn't parse or has static analysis errors then the interpreter

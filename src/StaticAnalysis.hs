@@ -4,13 +4,20 @@ import           Control.Monad.Identity
 import           Control.Monad.State
 import           Control.Monad.Writer
 import qualified Data.Set               as Set
-import Expr
+import           Expr
 import           Interpreter
 
--- Looking for uninitialised variable errors and unused variable errors.
+-- | Log any errors and maintain state.
+type Static a = WriterT (Set.Set StaticErr) (StateT StaticState IO) a
+
+-- Run the Static monad.
+runStatic :: Static a -> IO ((a, Set.Set StaticErr), StaticState)
+runStatic static = runStateT (runWriterT static) emptyState
+
+-- | Looking for uninitialised variable errors and unused variable errors.
 data StaticErr = Uninit Name | Unused Name deriving (Eq, Ord)
 
--- Track the initialised and accessed variables.
+-- | Track the initialised and accessed variables.
 data StaticState = StaticState
     { sInitVars :: Set.Set Name, sAccessVars :: Set.Set Name }
 
@@ -18,18 +25,11 @@ data StaticState = StaticState
 emptyState :: StaticState
 emptyState = StaticState Set.empty Set.empty
 
--- Log any errors and maintain state.
-type Static a = WriterT (Set.Set StaticErr) (StateT StaticState IO) a
-
--- Run the Static monad.
-runStatic :: Static a -> IO ((a, Set.Set StaticErr), StaticState)
-runStatic static = runStateT (runWriterT static) emptyState
-
 -- Find static analysis errors.
 analyse :: Statement -> IO [StaticErr]
 analyse stmt = do
     ((_, errs), StaticState initialised accessed) <- runStatic $ staticS stmt
-    -- Unused variables are those initialised but unused.
+    -- Unused variables are those initialised but not accessed.
     let unused = Set.toList $ initialised `Set.difference` accessed
     return $ Set.toList errs ++ map Unused unused
 
