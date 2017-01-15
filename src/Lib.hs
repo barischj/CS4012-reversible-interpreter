@@ -1,12 +1,11 @@
 module Lib where
-import qualified Data.Map               as Map
 
-import Control.Exception
 import           Control.Monad.Except
 import           Control.Monad.Identity
 import           Control.Monad.Reader
 import           Control.Monad.State hiding (state)
-
+import qualified Data.Map               as Map
+  
 -- The pure expression language.
 
 data Val =
@@ -146,7 +145,7 @@ setHistory history = modify (\s -> s { iSHist = history })
 putInfo :: String -> SEval ()
 putInfo str = liftIO $ putStrLn $ "> " ++ str
 
-data SError = BackError Int | StrError String
+data SError = BackError Int | StrError String deriving Show
   
 -- Print and throw error.
 throwSErrorStr :: String -> SEval a
@@ -180,16 +179,19 @@ sExprB expr = do
 -- Statement handlers for the interpreter -------------------------------------
 
 -- In case a user has decided to step back through the program, this function
--- catches a step back error, and if we have stepped back enough then
+-- catches a step back error, once we have stepped back enough then
 -- evaluation is resumed.
 sEval :: Statement -> SEval ()
-sEval stmt = sEval' stmt `catchError` handler
-    where handler (BackError n)
-            | n >  0 = throwError $ BackError (n - 1)
-            | n == 0 = do
+sEval stmt = do
+    state <- get
+    sEval' stmt `catchError` handler state  
+    where handler state (BackError n)
+            | n >  1 = throwError $ BackError (n - 1)
+            | n == 1 = do
                 putInfo $ "Stepped back to " ++ safeShow stmt
+                put state  
                 sEval stmt
-          handler e = throwError e 
+          handler _ err = throwError err 
   
 -- This is the function which actually evaluates statements.
 sEval' :: Statement -> SEval ()
@@ -209,12 +211,12 @@ sEval' stmt@(If expr sTrue sFalse) = do
     then prompt sTrue
     else prompt sFalse
 
-sEval' stmt@(While expr statement) = do
+sEval' stmt@(While expr body) = do
     save stmt Nothing
     val <- sExprB expr
     putInfo $ "While guard " ++ show val
     when val $ do
-      prompt statement
+      prompt body
       putInfo "While iteration finished"
       prompt stmt
 
@@ -248,41 +250,18 @@ prompt stmt = do
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO getLine
     case input of
-        "b" -> reverseInterpreter stmt
+        "b" -> throwError $ BackError 2
         "c" -> sEval stmt
         "i" -> inspectPrompt       >> prompt stmt
         "q" -> fail "quitting..."
         _   -> putInfo "bad input" >> prompt stmt
 
--- | Reverse the interpreter to a previous state if possible.
--- The statement we are currently evaluating is the last in our
--- state history. The statement we want to jump back to is the
--- second last.
-reverseInterpreter :: Statement -> SEval()
-reverseInterpreter stmt = do
-    history <- getHistory
-    if   length history < 2
-    -- If no previous statement loop the prompt.
-    then putInfo "No previous statement" >> prompt stmt
-    else reverseState 2 >> throwError (BackError 2)
-
--- | Reverses the state of the interpreter n steps based on history.
-reverseState :: Int -> SEval ()
-reverseState 0 = return ()
-reverseState rev = do
-    history <- getHistory
-    case last history of
-      (_, Nothing)     -> return ()
-      (_, Just (n, v)) -> modifyEnv $ Map.insert n v
-    setHistory $ init history
-    reverseState $ rev - 1
-
--- Run the prompt on a statament, catching any errors.
+-- Run the prompt on a statement, catching any errors.
 runInterpreter :: Statement -> IO ()
 runInterpreter statement = void $ runSEval catchRoot
-    where catchRoot =
-            sEval statement `catchError`
-                 const (putInfo "Uncaught error")
+    where catchRoot = sEval statement `catchError` handler
+          handler (BackError _) = putInfo "No previous statement" >> catchRoot
+          handler _             = putInfo "Uncaught error"
 
 -- Inspection functions -------------------------------------------------------
 
