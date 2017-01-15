@@ -1,15 +1,16 @@
-module Static (analyse, printErrs) where
+module StaticAnalysis (analyse, printErrs) where
 
 import           Control.Monad.Identity
 import           Control.Monad.State
 import           Control.Monad.Writer
 import qualified Data.Set               as Set
-import           Lib
+import Expr
+import           Interpreter
 
 -- Looking for uninitialised variable errors and unused variable errors.
 data StaticErr = Uninit Name | Unused Name deriving (Eq, Ord)
 
--- Track the initialised variables.
+-- Track the initialised and accessed variables.
 data StaticState = StaticState
     { sInitVars :: Set.Set Name, sAccessVars :: Set.Set Name }
 
@@ -22,7 +23,7 @@ type Static a = WriterT (Set.Set StaticErr) (StateT StaticState IO) a
 
 -- Run the Static monad.
 runStatic :: Static a -> IO ((a, Set.Set StaticErr), StaticState)
-runStatic static = runStateT (runWriterT static) emptyState 
+runStatic static = runStateT (runWriterT static) emptyState
 
 -- Find static analysis errors.
 analyse :: Statement -> IO [StaticErr]

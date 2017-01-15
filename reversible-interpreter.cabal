@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, Static
+  exposed-modules:     Expr, Interpreter, StaticAnalysis
   build-depends:       base >= 4.7 && < 5,
                        containers >= 0.5 && < 0.6,
                        mtl >= 2.2 && < 2.3,

@@ -1,7 +1,7 @@
 module Main where
 
-import Lib (runInterpreter)
-import Static (analyse, printErrs)
+import Interpreter (runInterpreter)
+import StaticAnalysis (analyse, printErrs)
 import System.Environment
 
 -- | Runs the interpreter on a file.
@@ -16,4 +16,4 @@ main = do
     case errs of
         [] -> runInterpreter stmt
         _  -> printErrs errs
-  
+
