@@ -21,11 +21,11 @@ data StaticErr = Uninit Name | Unused Name deriving (Eq, Ord)
 data StaticState = StaticState
     { sInitVars :: Set.Set Name, sAccessVars :: Set.Set Name }
 
--- Empty state tracking no variables.
+-- | Empty state tracking no variables.
 emptyState :: StaticState
 emptyState = StaticState Set.empty Set.empty
 
--- Find static analysis errors.
+-- | Find static analysis errors.
 analyse :: Statement -> IO [StaticErr]
 analyse stmt = do
     ((_, errs), StaticState initialised accessed) <- runStatic $ staticS stmt
@@ -33,12 +33,12 @@ analyse stmt = do
     let unused = Set.toList $ initialised `Set.difference` accessed
     return $ Set.toList errs ++ map Unused unused
 
--- Add a variable as initialised.
+-- | Add a variable as initialised.
 addInitVar :: Name -> Static ()
 addInitVar name = modify (\s ->
     s { sInitVars = sInitVars s `Set.union` Set.singleton name})
 
--- Add a variable as accessed.
+-- | Add a variable as accessed.
 addAccessVar :: Name -> Static ()
 addAccessVar name = modify (\s ->
     s { sAccessVars = sAccessVars s `Set.union` Set.singleton name })
@@ -67,12 +67,15 @@ staticE (Gt  e1 e2) = staticE e1 >> staticE e2
 staticE (Lt  e1 e2) = staticE e1 >> staticE e2
 staticE (Var name)  = do
     initialised <- fmap sInitVars get
+    -- Record an unitialised error if that's the case.
     unless (name `Set.member` initialised) $ tell $ Set.singleton $ Uninit name
+    -- Record the access.
     addAccessVar name
 
 -- Static analysis of statements ----------------------------------------------
 
 staticS :: Statement -> Static ()
+-- Record that the variable must be initialised.
 staticS (Assign name e1) = staticE e1 >> addInitVar name
 staticS (If e1 s1 s2)    = staticE e1 >> staticS s1 >> staticS s2
 staticS (While e1 s1)    = staticE e1 >> staticS s1

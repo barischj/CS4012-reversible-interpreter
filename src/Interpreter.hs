@@ -26,16 +26,19 @@ data IState = IState {
         iSEnv  :: Env
     } deriving Show
 
+-- | A new empty state.
 newIState :: IState
 newIState = IState { iSHist = [], iSEnv = Map.empty }
 
--- | Get and set state environment.
+-- | Get the environment.
 getEnv :: SEval Env
 getEnv = iSEnv <$> get
 
+-- | Set the environment.
 setEnv :: Env -> SEval ()
 setEnv env = modify (\s -> s { iSEnv = env })
 
+-- | Modify the environment.
 modifyEnv :: (Env -> Env) -> SEval ()
 modifyEnv f = modify (\s -> s { iSEnv = f (iSEnv s) })
 
@@ -44,21 +47,25 @@ save :: Statement -> Maybe Name -> SEval ()
 save statement maybeName = do
     history <- getHistory
     case maybeName of
+        -- Can't save assignment if no variable given.
         Nothing   -> saveNothing history
         Just name -> do
             env <- getEnv
             case Map.lookup name env of
+                -- Can't save assignment if no value in environment.
                 Nothing  -> saveNothing history
                 Just val -> saveVal history name val
-
+          -- Save a statment and assignment.
     where saveNothing hist = setHistory $ hist ++ [(statement, Nothing)]
+          -- Save a statment and no assignment.
           saveVal hist name val =
               setHistory $ hist ++ [(statement, Just (name, val))]
 
--- | Get and set state history.
+-- | Get state history.
 getHistory :: SEval History
 getHistory = iSHist <$> get
 
+-- | Set state history.
 setHistory :: History -> SEval ()
 setHistory history = modify (\s -> s { iSHist = history })
 
@@ -70,7 +77,7 @@ putInfo str = liftIO $ putStrLn $ "> " ++ str
 -- message for the user.
 data SError = BackError Int | StrError String deriving Show
 
--- Print and throw error.
+-- | Print the error and then throw it as a `StrError`.
 throwSErrorStr :: String -> SEval a
 throwSErrorStr err = do
     putInfo $ "ERR: " ++ err
@@ -101,9 +108,9 @@ sExprB expr = do
 
 -- Statement handlers for the interpreter -------------------------------------
 
--- In case a user has decided to step back through the program, this function
--- catches a step back error, once we have stepped back enough then
--- evaluation is resumed.
+-- | In case a user has decided to step back through the program, this function
+-- catches a step back error, once we have stepped back enough then evaluation
+-- is resumed.
 sEval :: Statement -> SEval ()
 sEval stmt = do
     state <- get
@@ -117,7 +124,8 @@ sEval stmt = do
                 sEval stmt
           handler _ err = throwError err
 
--- This is the function which actually evaluates statements.
+-- | This is the function which actually evaluates statements.
+-- For each constructor we start by with saving it to history.
 sEval' :: Statement -> SEval ()
 
 sEval' stmt@(Assign name expr) = do
@@ -127,6 +135,7 @@ sEval' stmt@(Assign name expr) = do
     setEnv $ Map.insert name val env
     putInfo $ concat ["Assigned ", show val, " to ", show name]
 
+-- | Conditionally execute the first statement else the second.
 sEval' stmt@(If expr sTrue sFalse) = do
     save stmt Nothing
     val <- sExprB expr
@@ -135,6 +144,8 @@ sEval' stmt@(If expr sTrue sFalse) = do
     then prompt sTrue
     else prompt sFalse
 
+-- | Execute the while body if the guard is true, then recurse.
+-- Every iterations of the while is added to history.
 sEval' stmt@(While expr body) = do
     save stmt Nothing
     val <- sExprB expr
@@ -144,23 +155,30 @@ sEval' stmt@(While expr body) = do
       putInfo "While iteration finished"
       prompt stmt
 
+-- | Print an expression.
 sEval' stmt@(Print expr) = do
     save stmt Nothing
     liftIO $ putStrLn $ "Print: " ++ show expr
 
+-- | Execute two statements after each other.
 sEval' stmt@(Seq s1 s2) = do
     save stmt Nothing
     prompt s1
     prompt s2
 
+-- | Attempt execution of the first statement, if an error is thrown we catch
+-- it, restore state and execute the second statement.
 sEval' stmt@(Try sTry sCatch) = do
+    state <- get
     save stmt Nothing
-    prompt sTry `catchError` handler
-    where handler (StrError err) = do
-            putInfo $ "Caught error: " ++ show err
-            prompt sCatch
-          handler err = throwError err
+    prompt sTry `catchError` handler state
+    where handler state err = put state >> handler' err
+          handler' (StrError err) = do
+              putInfo $ "Caught error: " ++ show err
+              prompt sCatch
+          handler' err = throwError err
 
+-- | Just save it to history.
 sEval' Pass = save Pass Nothing
 
 -- Interactive prompt for a statement.
@@ -172,6 +190,8 @@ prompt stmt = do
     input <- liftIO getLine
     case input of
         "c"              -> sEval stmt
+        -- The reason we want to step back 2 is that 1 would only get us to the
+        -- start of the current statment.
         "b"              -> throwError $ BackError 2
         ['i', ' ', name] -> printVarHistory [name] >> prompt stmt
         "e"              -> printEnv               >> prompt stmt
