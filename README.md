@@ -24,6 +24,9 @@ analysis. If it passes static analysis it is executed in the interpreter. The
 first `Statement`, which in both test files is `Seq`, is executed and then the
 user is prompted for the next action.
 
+The prompt looks like this:
+`> c (continue) / b (back) / i X (inspect var X) / e (environement) / q (quit)`
+
 ```haskell
 -- | Statement evluation monad.
 type SEval a = StateT IState (ExceptT SError IO) a
@@ -46,7 +49,7 @@ entering `e` to examine the current **e**nvironment, or entering `i X` to
 **i**nspect the value of a single variable `X` and its entire history.
 
 ## History (10)
-Each `Statement` which has begun execution is recorded. In addition if the
+Each `Statement` which has begun execution is recorded. In addition, if the
 `Statement` was an assignment the value of the variable **before** assignment
 is recorded. If the `Statement` is not an assignment `Nothing` is recorded.
 The history of the variable can be inspected at the prompt with `i X`.
