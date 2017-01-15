@@ -7,7 +7,7 @@ import qualified Data.Set               as Set
 import           Lib
 
 -- Looking for uninitialised variable errors and unused variable errors.
-data StaticErr = Uninit Name | Unused Name
+data StaticErr = Uninit Name | Unused Name deriving (Eq, Ord)
 
 -- Track the initialised variables.
 data StaticState = StaticState
@@ -18,10 +18,10 @@ emptyState :: StaticState
 emptyState = StaticState Set.empty Set.empty
 
 -- Log any errors and maintain state.
-type Static a = WriterT [StaticErr] (StateT StaticState IO) a
+type Static a = WriterT (Set.Set StaticErr) (StateT StaticState IO) a
 
 -- Run the Static monad.
-runStatic :: Static a -> IO ((a, [StaticErr]), StaticState)
+runStatic :: Static a -> IO ((a, Set.Set StaticErr), StaticState)
 runStatic static = runStateT (runWriterT static) emptyState 
 
 -- Find static analysis errors.
@@ -30,7 +30,7 @@ analyse stmt = do
     ((_, errs), StaticState initialised accessed) <- runStatic $ staticS stmt
     -- Unused variables are those initialised but unused.
     let unused = Set.toList $ initialised `Set.difference` accessed
-    return $ errs ++ map Unused unused
+    return $ Set.toList errs ++ map Unused unused
 
 -- Add a variable as initialised.
 addInitVar :: Name -> Static ()
@@ -66,7 +66,7 @@ staticE (Gt  e1 e2) = staticE e1 >> staticE e2
 staticE (Lt  e1 e2) = staticE e1 >> staticE e2
 staticE (Var name)  = do
     initialised <- fmap sInitVars get
-    unless (name `Set.member` initialised) $ tell [Uninit name]
+    unless (name `Set.member` initialised) $ tell $ Set.singleton $ Uninit name
     addAccessVar name
 
 -- Static analysis of statements ----------------------------------------------

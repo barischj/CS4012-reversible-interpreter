@@ -184,6 +184,7 @@ sExprB expr = do
 sEval :: Statement -> SEval ()
 sEval stmt = do
     state <- get
+    putInfo $ "Running: " ++ safeShow stmt
     sEval' stmt `catchError` handler state  
     where handler state (BackError n)
             | n >  1 = throwError $ BackError (n - 1)
@@ -226,41 +227,39 @@ sEval' stmt@(Print expr) = do
 
 sEval' stmt@(Seq s1 s2) = do
     save stmt Nothing
-    putInfo "running Seq"
     prompt s1
     prompt s2
 
 sEval' stmt@(Try sTry sCatch) = do
     save stmt Nothing
-    putInfo "running Try"
     prompt sTry `catchError` handler
     where handler (StrError err) = do
             putInfo $ "Caught error: " ++ show err
             prompt sCatch
           handler err = throwError err
 
-sEval' Pass = do
-    save Pass Nothing
-    putInfo "Pass"
+sEval' Pass = save Pass Nothing
 
 -- Interactive prompt for a statement.
 prompt :: Statement -> SEval ()
 prompt stmt = do
-    putInfo $ "Next statement: " ++ safeShow stmt
-    putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
+    putInfo $ "Next: " ++ safeShow stmt
+    putInfo $ "c (continue) / b (back) / i X (inspect var X) / " ++
+              "e (environement) / q (quit)"
     input <- liftIO getLine
     case input of
-        "b" -> throwError $ BackError 2
-        "c" -> sEval stmt
-        "i" -> inspectPrompt       >> prompt stmt
-        "q" -> fail "quitting..."
-        _   -> putInfo "bad input" >> prompt stmt
+        "c"              -> sEval stmt
+        "b"              -> throwError $ BackError 2
+        ['i', ' ', name] -> printVarHistory [name] >> prompt stmt
+        "e"              -> printEnv               >> prompt stmt
+        "q"              -> fail "quitting..."
+        _                -> putInfo "bad input"    >> prompt stmt
 
 -- Run the prompt on a statement, catching any errors.
 runInterpreter :: Statement -> IO ()
 runInterpreter statement = void $ runSEval catchRoot
     where catchRoot = sEval statement `catchError` handler
-          handler (BackError _) = putInfo "No previous statement" >> catchRoot
+          handler (BackError _) = putInfo "First statement" >> catchRoot
           handler _             = putInfo "Uncaught error"
 
 -- Inspection functions -------------------------------------------------------
@@ -271,7 +270,6 @@ inspectPrompt = do
     putInfo "i X (inspect X) / e (current environement) / q (quit inspection)"
     input <- liftIO getLine
     case input of
-        ['i', ' ', name] -> printVarHistory [name] >> inspectPrompt
         "q"              -> return ()
         "e"              -> printEnv               >> inspectPrompt
         _                -> putInfo "bad input"    >> inspectPrompt
