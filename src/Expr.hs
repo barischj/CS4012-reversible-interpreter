@@ -3,7 +3,6 @@ module Expr where
 import           Control.Monad.Except
 import           Control.Monad.Identity
 import           Control.Monad.Reader
-import           Control.Monad.State    hiding (state)
 import qualified Data.Map               as Map
 
 -- The pure expression language.

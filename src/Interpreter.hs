@@ -113,14 +113,14 @@ sExprB expr = do
 -- is resumed.
 sEval :: Statement -> SEval ()
 sEval stmt = do
-    state <- get
+    currState <- get
     putInfo $ "Running: " ++ safeShow stmt
-    sEval' stmt `catchError` handler state
-    where handler state (BackError n)
+    sEval' stmt `catchError` handler currState
+    where handler currState (BackError n)
             | n >  1 = throwError $ BackError (n - 1)
             | n == 1 = do
                 putInfo $ "Stepped back to " ++ safeShow stmt
-                put state
+                put currState
                 sEval stmt
           handler _ err = throwError err
 
@@ -169,10 +169,10 @@ sEval' stmt@(Seq s1 s2) = do
 -- | Attempt execution of the first statement, if an error is thrown we catch
 -- it, restore state and execute the second statement.
 sEval' stmt@(Try sTry sCatch) = do
-    state <- get
+    currState <- get
     save stmt Nothing
-    prompt sTry `catchError` handler state
-    where handler state err = put state >> handler' err
+    prompt sTry `catchError` handler currState
+    where handler currState err = put currState >> handler' err
           handler' (StrError err) = do
               putInfo $ "Caught error: " ++ show err
               prompt sCatch
