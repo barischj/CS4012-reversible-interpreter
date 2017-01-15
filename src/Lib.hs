@@ -1,6 +1,7 @@
 module Lib where
 import qualified Data.Map               as Map
 
+import Control.Exception
 import           Control.Monad.Except
 import           Control.Monad.Identity
 import           Control.Monad.Reader
@@ -72,16 +73,12 @@ eval (Add e0 e1) = evali (+) e0 e1
 eval (Sub e0 e1) = evali (-) e0 e1
 eval (Mul e0 e1) = evali (*) e0 e1
 eval (Div e0 e1) = evali div e0 e1
-
 eval (And e0 e1) = evalb (&&) e0 e1
 eval (Or  e0 e1) = evalb (||) e0 e1
-
 eval (Not e0   ) = evalb (const not) e0 (Const (B True))
-
-eval (Eq e0 e1) = evalib (==) e0 e1
-eval (Gt e0 e1) = evalib (>) e0 e1
-eval (Lt e0 e1) = evalib (<) e0 e1
-
+eval (Eq  e0 e1) = evalib (==) e0 e1
+eval (Gt  e0 e1) = evalib (>) e0 e1
+eval (Lt  e0 e1) = evalib (<) e0 e1
 eval (Var s) = do
     env <- ask
     lookupF s env
@@ -100,17 +97,13 @@ data Statement =
 -- History consists of all previous statements and maybe value of a variable
 -- prior to assignment.
 type HistoryItem = (Statement, Maybe (Name, Val))
-type History = [HistoryItem]
-
--- All statements remaining to be evaluated.
-type Future = [Statement]
+type History     = [HistoryItem]
 
 -- State in the SEval monad consists of the history of previous statements, the
 -- current evaluation environment and the statements remaining to be evaluated.
 data IState = IState {
         iSHist :: History,
         iSEnv  :: Env
-        -- iSFuture :: Future
     } deriving Show
 
 newIState :: IState
@@ -122,6 +115,9 @@ getEnv = iSEnv <$> get
 
 setEnv :: Env -> SEval ()
 setEnv env = modify (\s -> s { iSEnv = env })
+
+modifyEnv :: (Env -> Env) -> SEval ()
+modifyEnv f = modify (\s -> s { iSEnv = f (iSEnv s) })
 
 -- Save a statement and possible assignment to history.
 save :: Statement -> Maybe Name -> SEval ()
@@ -150,17 +146,19 @@ setHistory history = modify (\s -> s { iSHist = history })
 putInfo :: String -> SEval ()
 putInfo str = liftIO $ putStrLn $ "> " ++ str
 
+data SError = BackError Int | StrError String
+  
 -- Print and throw error.
-throw :: String -> SEval a
-throw err = do
+throwSErrorStr :: String -> SEval a
+throwSErrorStr err = do
     putInfo $ "ERR: " ++ err
-    throwError err
+    throwError $ StrError err
 
 -- Monadic style statement evaluator.
-type SEval a = StateT IState (ExceptT String IO) a
+type SEval a = StateT IState (ExceptT SError IO) a
 
 -- Run the SEval monad where state contains the given statements.
-runSEval :: SEval a -> IO (Either String (a, IState))
+runSEval :: SEval a -> IO (Either SError (a, IState))
 runSEval sEvalA = runExceptT $ runStateT sEvalA newIState
 
 -- Evaluate an expression in the SEval monad.
@@ -169,7 +167,7 @@ sExpr :: Expr -> SEval Val
 sExpr expr = do
     env <- getEnv
     case runEval env (eval expr) of
-        Left  err -> throw err
+        Left  err -> throwSErrorStr err
         Right val -> return val
 
 sExprB :: Expr -> SEval Bool
@@ -177,71 +175,107 @@ sExprB expr = do
     val <- sExpr expr
     case val of
         B bool -> return bool
-        a      -> throw $ "Expected B Bool, got " ++ show a
+        a      -> throwSErrorStr $ "Expected B Bool, got " ++ show a
 
 -- Statement handlers for the interpreter -------------------------------------
 
+-- In case a user has decided to step back through the program, this function
+-- catches a step back error, and if we have stepped back enough then
+-- evaluation is resumed.
 sEval :: Statement -> SEval ()
+sEval stmt = sEval' stmt `catchError` handler
+    where handler (BackError n)
+            | n >  0 = throwError $ BackError (n - 1)
+            | n == 0 = do
+                putInfo $ "Stepped back to " ++ safeShow stmt
+                sEval stmt
+          handler e = throwError e 
+  
+-- This is the function which actually evaluates statements.
+sEval' :: Statement -> SEval ()
 
-sEval stmt@(Assign name expr) = do
+sEval' stmt@(Assign name expr) = do
     save stmt $ Just name
     env <- getEnv
     val <- sExpr expr
     setEnv $ Map.insert name val env
     putInfo $ concat ["Assigned ", show val, " to ", show name]
 
-sEval (If expr sTrue sFalse) = do
+sEval' stmt@(If expr sTrue sFalse) = do
+    save stmt Nothing
     val <- sExprB expr
     putInfo $ "If guard " ++ show val
     if   val
     then prompt sTrue
     else prompt sFalse
 
-sEval while@(While expr statement) = do
+sEval' stmt@(While expr statement) = do
+    save stmt Nothing
     val <- sExprB expr
     putInfo $ "While guard " ++ show val
     when val $ do
       prompt statement
       putInfo "While iteration finished"
-      prompt while
+      prompt stmt
 
-sEval (Print expr) = liftIO $ putStrLn $ "Print: " ++ show expr
+sEval' stmt@(Print expr) = do
+    save stmt Nothing
+    liftIO $ putStrLn $ "Print: " ++ show expr
 
-sEval stmt@(Seq s1 s2) = do
+sEval' stmt@(Seq s1 s2) = do
     save stmt Nothing
     putInfo "running Seq"
     prompt s1
     prompt s2
 
-sEval (Try sTry sCatch) = do
+sEval' stmt@(Try sTry sCatch) = do
+    save stmt Nothing
     putInfo "running Try"
     prompt sTry `catchError` handler
-    where handler _ = do
-            putInfo "caught error"
+    where handler (StrError err) = do
+            putInfo $ "Caught error: " ++ show err
             prompt sCatch
+          handler err = throwError err
 
-sEval Pass = putInfo "Pass"
+sEval' Pass = do
+    save Pass Nothing
+    putInfo "Pass"
 
 -- Interactive prompt for a statement.
 prompt :: Statement -> SEval ()
-prompt statement = do
-    putInfo $ "Next statement: " ++ safeTake (show statement)
+prompt stmt = do
+    putInfo $ "Next statement: " ++ safeShow stmt
     putInfo "i (inspect) / c (continue) / b (back) / q (quit)"
     input <- liftIO getLine
     case input of
-        "b" -> do -- print current state and see what we can do
-               putInfo "current state"
-               state <- get
-               putInfo $ show state
-               prompt statement
-               -- The statement we are currently evaluating is the last in our
-               -- state history. So we take the second last statement which is
-               -- semantically the previously evaluated statement. We then begin
-               -- evaluating that statement.
-        "c" -> sEval statement
-        "i" -> inspectPrompt       >> prompt statement
+        "b" -> reverseInterpreter stmt
+        "c" -> sEval stmt
+        "i" -> inspectPrompt       >> prompt stmt
         "q" -> fail "quitting..."
-        _   -> putInfo "bad input" >> prompt statement
+        _   -> putInfo "bad input" >> prompt stmt
+
+-- | Reverse the interpreter to a previous state if possible.
+-- The statement we are currently evaluating is the last in our
+-- state history. The statement we want to jump back to is the
+-- second last.
+reverseInterpreter :: Statement -> SEval()
+reverseInterpreter stmt = do
+    history <- getHistory
+    if   length history < 2
+    -- If no previous statement loop the prompt.
+    then putInfo "No previous statement" >> prompt stmt
+    else reverseState 2 >> throwError (BackError 2)
+
+-- | Reverses the state of the interpreter n steps based on history.
+reverseState :: Int -> SEval ()
+reverseState 0 = return ()
+reverseState rev = do
+    history <- getHistory
+    case last history of
+      (_, Nothing)     -> return ()
+      (_, Just (n, v)) -> modifyEnv $ Map.insert n v
+    setHistory $ init history
+    reverseState $ rev - 1
 
 -- Run the prompt on a statament, catching any errors.
 runInterpreter :: Statement -> IO ()
@@ -298,6 +332,10 @@ printEnv' [] = return ()
 printEnv' ((name, val):xs) = do
     putInfo $ concat [name, " = ", show val]
     printEnv' xs
+
+-- Show upto n chars of a showable value.
+safeShow :: Show a => a -> String
+safeShow = safeTake . show
 
 -- Take upto n chars of a string if there are enough.
 safeTake :: String -> String
