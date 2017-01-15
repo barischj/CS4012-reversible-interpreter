@@ -8,7 +8,7 @@ Anything relating to `Statement` evaluation is in `Interpreter.hs`.
 Static analysis lives in `StaticAnalysis.hs`.
 
 ## Running
-Two test files are included. `test/fib.txt` which is a working Fibonacci and
+Two test files are included, `test/fib.txt` which is a working Fibonacci and
 `test/fib-errs.txt` which is Fibonacci with static analysis errors.
 
 ```bash
@@ -25,6 +25,7 @@ first `Statement`, which in both test files is `Seq`, is executed and then the
 user is prompted for the next action.
 
 The prompt looks like this:
+
 `> c (continue) / b (back) / i X (inspect var X) / e (environement) / q (quit)`
 
 ```haskell
